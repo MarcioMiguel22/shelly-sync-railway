@@ -1,0 +1,115 @@
+═══════════════════════════════════════════════════════════════════
+🚀 DEPLOY RAILWAY - FAZ ISTO AGORA (2 MINUTOS)
+═══════════════════════════════════════════════════════════════════
+
+PASSO 1: ABRIR RAILWAY
+═══════════════════════════════════════════════════════════════════
+Abre este link no browser:
+👉 https://railway.app/new
+
+═══════════════════════════════════════════════════════════════════
+PASSO 2: DEPLOY FROM GITHUB
+═══════════════════════════════════════════════════════════════════
+1. Clica em "Deploy from GitHub repo"
+2. Procura: shelly-sync-railway
+3. Seleciona: MarcioMiguel22/shelly-sync-railway
+4. Clica "Deploy Now"
+5. AGUARDA 1-2 minutos (vai falhar - é normal!)
+
+═══════════════════════════════════════════════════════════════════
+PASSO 3: OBTER CREDENCIAIS INFLUXDB (IMPORTANTE!)
+═══════════════════════════════════════════════════════════════════
+Antes de continuar, precisa das credenciais InfluxDB:
+
+1. Abre noutra tab: https://railway.app/dashboard
+2. Procura o projeto da API Flask (pode chamar-se "shelly-api" ou similar)
+3. Clica nele
+4. Vai ao separador "Variables"
+5. COPIA estes 4 valores:
+   - INFLUX_URL
+   - INFLUX_ORG
+   - INFLUX_TOKEN
+   - INFLUX_BUCKET
+
+═══════════════════════════════════════════════════════════════════
+PASSO 4: CONFIGURAR VARIÁVEIS NO NOVO PROJETO
+═══════════════════════════════════════════════════════════════════
+Volta ao projeto shelly-sync-railway que acabaste de criar:
+
+1. Clica no serviço
+2. Vai ao separador "Variables"
+3. Clica em "RAW Editor" (mais fácil)
+4. COLA ISTO (substitui os valores que copiaste):
+
+INFLUX_URL=https://us-east-1-1.aws.cloud2.influxdata.com
+INFLUX_ORG=COLA_AQUI_O_VALOR_QUE_COPIASTE
+INFLUX_TOKEN=COLA_AQUI_O_VALOR_QUE_COPIASTE
+INFLUX_BUCKET=energy
+DATABASE_URL=postgresql://postgres:tDxqlKZrjPbfsDYaaetslawQWJGcqTSq@shuttle.proxy.rlwy.net:41544/railway
+SYNC_INTERVAL=300
+LOOKBACK_HOURS=1
+
+5. Clica "Add" ou "Save"
+
+═══════════════════════════════════════════════════════════════════
+PASSO 5: FAZER REDEPLOY
+═══════════════════════════════════════════════════════════════════
+1. Vai ao separador "Deployments"
+2. Clica nos 3 pontos (...) do deployment mais recente
+3. Clica "Redeploy"
+4. AGUARDA 1-2 minutos
+
+═══════════════════════════════════════════════════════════════════
+PASSO 6: VERIFICAR LOGS (IMPORTANTE!)
+═══════════════════════════════════════════════════════════════════
+1. No separador "Deployments", clica no deployment ativo (verde)
+2. Vê os LOGS
+3. Deves ver isto:
+
+✓ Conectado ao InfluxDB Cloud
+✓ Conectado ao PostgreSQL Railway
+✓ Obtidos XXX registos de potência total do InfluxDB
+✓ Obtidos XXX registos de fases do InfluxDB
+✓ Guardados XXX registos no PostgreSQL
+✓ Sincronização completa: XXX registos guardados
+Próxima sincronização em 300s...
+
+SE VIRES ISTO = ✅ FUNCIONOU!
+
+═══════════════════════════════════════════════════════════════════
+ERROS COMUNS:
+═══════════════════════════════════════════════════════════════════
+❌ "401 Unauthorized"
+   → INFLUX_TOKEN está errado - copia novamente da API Flask
+
+❌ "Bucket not found"
+   → INFLUX_BUCKET tem de ser exatamente "energy"
+
+❌ "Connection refused"
+   → Verifica se DATABASE_URL está completo (começa com postgresql://)
+
+❌ Worker continua a crashar
+   → Confirma que TODAS as 7 variáveis foram adicionadas
+
+═══════════════════════════════════════════════════════════════════
+VERIFICAR SE ESTÁ A GUARDAR DADOS:
+═══════════════════════════════════════════════════════════════════
+Depois de 5 minutos, executa isto no PostgreSQL:
+
+SELECT COUNT(*) FROM shelly_power_readings;
+
+Se tiver registos > 0 = ✅ ESTÁ A FUNCIONAR!
+
+═══════════════════════════════════════════════════════════════════
+🎉 PRONTO! AGORA PODES DESLIGAR O IMAC SEM MEDO!
+═══════════════════════════════════════════════════════════════════
+
+Os dados do Shelly estão a ser guardados automaticamente no PostgreSQL
+a cada 5 minutos. O histórico fica preservado permanentemente.
+
+Links úteis:
+- Railway Dashboard: https://railway.app/dashboard
+- GitHub Repo: https://github.com/MarcioMiguel22/shelly-sync-railway
+- PostgreSQL: shuttle.proxy.rlwy.net:41544
+
+═══════════════════════════════════════════════════════════════════
