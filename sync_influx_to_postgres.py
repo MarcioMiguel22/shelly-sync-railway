@@ -70,13 +70,15 @@ class InfluxToPostgresSync:
         try:
             query_api = self.influx_client.query_api()
 
-            # Query para potência total
+            # Query para potência total (soma de phase_a + phase_b + phase_c)
             query_total = f'''
             from(bucket: "{INFLUX_BUCKET}")
               |> range(start: -{hours}h)
               |> filter(fn: (r) => r["_measurement"] == "power")
-              |> filter(fn: (r) => r["_field"] == "total_power")
+              |> filter(fn: (r) => r["_field"] == "phase_a" or r["_field"] == "phase_b" or r["_field"] == "phase_c")
               |> aggregateWindow(every: 1m, fn: mean, createEmpty: false)
+              |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
+              |> map(fn: (r) => ({{ r with total: r.phase_a + r.phase_b + r.phase_c }}))
             '''
 
             result = query_api.query(query_total)
@@ -84,16 +86,18 @@ class InfluxToPostgresSync:
             data = []
             for table in result:
                 for record in table.records:
-                    data.append({
-                        'timestamp': record.get_time(),
-                        'device_id': 'shelly_3em_entrada',
-                        'phase': 'total',
-                        'power_w': record.get_value(),
-                        'current_a': None,
-                        'voltage_v': None,
-                        'power_factor': None,
-                        'frequency_hz': None
-                    })
+                    total_power = record.values.get("total", 0)
+                    if total_power > 0:  # Só guarda se tiver potência
+                        data.append({
+                            'timestamp': record.get_time(),
+                            'device_id': 'shelly_3em_entrada',
+                            'phase': 'total',
+                            'power_w': total_power,
+                            'current_a': None,
+                            'voltage_v': None,
+                            'power_factor': None,
+                            'frequency_hz': None
+                        })
 
             logger.info(f"✓ Obtidos {len(data)} registos de potência total do InfluxDB")
             return data
@@ -107,77 +111,50 @@ class InfluxToPostgresSync:
             query_api = self.influx_client.query_api()
 
             phases_data = []
+            phase_fields = {'a': 'A', 'b': 'B', 'c': 'C'}
 
-            for phase in ['A', 'B', 'C']:
-                # Query para potência por fase
-                query_power = f'''
-                from(bucket: "{INFLUX_BUCKET}")
+            for phase_letter, phase_name in phase_fields.items():
+                # Query combinada para potência, corrente e voltagem por fase
+                query = f'''
+                power = from(bucket: "{INFLUX_BUCKET}")
                   |> range(start: -{hours}h)
                   |> filter(fn: (r) => r["_measurement"] == "power")
-                  |> filter(fn: (r) => r["phase"] == "{phase}")
-                  |> filter(fn: (r) => r["_field"] == "power")
+                  |> filter(fn: (r) => r["_field"] == "phase_{phase_letter}")
                   |> aggregateWindow(every: 1m, fn: mean, createEmpty: false)
-                '''
+                  |> set(key: "_field", value: "power")
 
-                # Query para corrente por fase
-                query_current = f'''
-                from(bucket: "{INFLUX_BUCKET}")
+                current = from(bucket: "{INFLUX_BUCKET}")
                   |> range(start: -{hours}h)
-                  |> filter(fn: (r) => r["_measurement"] == "power")
-                  |> filter(fn: (r) => r["phase"] == "{phase}")
-                  |> filter(fn: (r) => r["_field"] == "current")
+                  |> filter(fn: (r) => r["_measurement"] == "current")
+                  |> filter(fn: (r) => r["_field"] == "phase_{phase_letter}")
                   |> aggregateWindow(every: 1m, fn: mean, createEmpty: false)
-                '''
+                  |> set(key: "_field", value: "current")
 
-                # Query para voltagem por fase
-                query_voltage = f'''
-                from(bucket: "{INFLUX_BUCKET}")
+                voltage = from(bucket: "{INFLUX_BUCKET}")
                   |> range(start: -{hours}h)
-                  |> filter(fn: (r) => r["_measurement"] == "power")
-                  |> filter(fn: (r) => r["phase"] == "{phase}")
-                  |> filter(fn: (r) => r["_field"] == "voltage")
+                  |> filter(fn: (r) => r["_measurement"] == "voltage")
+                  |> filter(fn: (r) => r["_field"] == "phase_{phase_letter}")
                   |> aggregateWindow(every: 1m, fn: mean, createEmpty: false)
+                  |> set(key: "_field", value: "voltage")
+
+                union(tables: [power, current, voltage])
+                  |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
                 '''
 
-                power_result = query_api.query(query_power)
-                current_result = query_api.query(query_current)
-                voltage_result = query_api.query(query_voltage)
+                result = query_api.query(query)
 
-                # Combinar dados por timestamp
-                phase_map = {}
-
-                for table in power_result:
+                for table in result:
                     for record in table.records:
-                        ts = record.get_time()
-                        if ts not in phase_map:
-                            phase_map[ts] = {'power': None, 'current': None, 'voltage': None}
-                        phase_map[ts]['power'] = record.get_value()
-
-                for table in current_result:
-                    for record in table.records:
-                        ts = record.get_time()
-                        if ts not in phase_map:
-                            phase_map[ts] = {'power': None, 'current': None, 'voltage': None}
-                        phase_map[ts]['current'] = record.get_value()
-
-                for table in voltage_result:
-                    for record in table.records:
-                        ts = record.get_time()
-                        if ts not in phase_map:
-                            phase_map[ts] = {'power': None, 'current': None, 'voltage': None}
-                        phase_map[ts]['voltage'] = record.get_value()
-
-                for ts, values in phase_map.items():
-                    phases_data.append({
-                        'timestamp': ts,
-                        'device_id': 'shelly_3em_entrada',
-                        'phase': phase,
-                        'power_w': values['power'],
-                        'current_a': values['current'],
-                        'voltage_v': values['voltage'],
-                        'power_factor': None,
-                        'frequency_hz': None
-                    })
+                        phases_data.append({
+                            'timestamp': record.get_time(),
+                            'device_id': 'shelly_3em_entrada',
+                            'phase': phase_name,
+                            'power_w': record.values.get('power', 0),
+                            'current_a': record.values.get('current', 0),
+                            'voltage_v': record.values.get('voltage', 0),
+                            'power_factor': None,
+                            'frequency_hz': None
+                        })
 
             logger.info(f"✓ Obtidos {len(phases_data)} registos de fases do InfluxDB")
             return phases_data
